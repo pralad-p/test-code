@@ -1,7 +1,7 @@
 #include <windows.h>
 #include <CommCtrl.h>
-#include "globals.h"
 
+#include "globals.h"
 #pragma comment(lib, "comctl32.lib")
 
 
@@ -51,6 +51,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 }
 
 LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+	// Variables to store button handles
+	static HWND hWndButtonInc, hWndButtonDec, hWndButtonStartStop;
 	switch (message) {
 	case WM_CREATE: {
 		// Set up the timer to update every second for the clock
@@ -87,7 +89,7 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		SetWindowPos(hTabCtrl, NULL, 0, 0, rcClient.right, tabControlHeight, SWP_NOMOVE | SWP_NOZORDER);
 
 		// Create buttons in the timer tab
-		HWND hWndButtonInc = CreateWindow(
+		hWndButtonInc = CreateWindow(
 			L"BUTTON",  // Predefined class; Unicode assumed 
 			L"+1 Min",      // Button text 
 			WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,  // Styles 
@@ -97,15 +99,20 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 			30,         // Button height
 			hWnd,       // Parent window
 			(HMENU)ID_BUTTON_INC,       // No menu.
-			(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+			hInst,
 			NULL);      // Pointer not needed.
 
 		// Repeat for the other two buttons
-		HWND hWndButtonDec = CreateWindow(L"BUTTON", L"-1 Min", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-			120, 60, 100, 30, hWnd, (HMENU)ID_BUTTON_DEC, (HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE), NULL);
+		hWndButtonDec = CreateWindow(L"BUTTON", L"-1 Min", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+			120, 60, 100, 30, hWnd, (HMENU)ID_BUTTON_DEC, hInst, NULL);
 
-		HWND hWndButtonStartStop = CreateWindow(L"BUTTON", L"Start/Stop", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-			230, 60, 100, 30, hWnd, (HMENU)ID_BUTTON_START_STOP, (HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE), NULL);
+		hWndButtonStartStop = CreateWindow(L"BUTTON", L"Start/Stop", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+			230, 60, 100, 30, hWnd, (HMENU)ID_BUTTON_START_STOP, hInst, NULL);
+
+		// Initially, the buttons should be hidden since the clock tab is the default
+		ShowWindow(hWndButtonInc, SW_HIDE);
+		ShowWindow(hWndButtonDec, SW_HIDE);
+		ShowWindow(hWndButtonStartStop, SW_HIDE);
 
 		TCITEM tie;
 		tie.mask = TCIF_TEXT;
@@ -115,27 +122,78 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		TabCtrl_InsertItem(hTabCtrl, 1, &tie);
 		break;
 	}
-	case WM_COMMAND:
-	{
+	case WM_SIZE: {
+		// Get the new width and height of the window
+		int width = LOWORD(lParam);
+		int height = HIWORD(lParam);
+		// Calculate new button sizes and positions
+		int buttonWidth = width / 4;  // Divide the width by 4 for button width
+		int buttonHeight = 30;        // Set button height
+		int buttonYPosition = height - buttonHeight - 20; // 20 pixels from the bottom
+		int newFontSize = max(height / 10, 20); // Ensure the font size does not get too small
+		// Create a new font with the calculated size
+		LOGFONT lf = { 0 };
+		lf.lfHeight = -MulDiv(newFontSize, GetDeviceCaps(GetDC(hWnd), LOGPIXELSY), 72); // Calculate height based on DPI
+		wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Consolas");
+		lf.lfWeight = FW_BOLD;
+		HFONT hNewFont = CreateFontIndirect(&lf);
+		if (!hNewFont) {
+			// Handle error
+		}
+		else {
+			if (hFontClock) {
+				DeleteObject(hFontClock); // Delete the old font to prevent memory leaks
+			}
+			hFontClock = hNewFont;
+			// No need to send WM_SETFONT because we are drawing the text ourselves
+		}
+
+		// Resize and reposition the buttons
+		SetWindowPos(hWndButtonInc, NULL, 10, buttonYPosition, buttonWidth, buttonHeight, SWP_NOZORDER);
+		SetWindowPos(hWndButtonDec, NULL, 10 + buttonWidth + 10, buttonYPosition, buttonWidth, buttonHeight, SWP_NOZORDER);
+		SetWindowPos(hWndButtonStartStop, NULL, 10 + 2 * (buttonWidth + 10), buttonYPosition, buttonWidth, buttonHeight, SWP_NOZORDER);
+		// Redraw the window to apply changes
+		InvalidateRect(hWnd, nullptr, TRUE);
+		// Redraw the buttons
+		InvalidateRect(hWndButtonInc, NULL, TRUE);
+		InvalidateRect(hWndButtonDec, NULL, TRUE);
+		InvalidateRect(hWndButtonStartStop, NULL, TRUE);
+		break;
+	}
+	case WM_COMMAND: {
 		int wmId = LOWORD(wParam);
 		switch (wmId)
 		{
-		case ID_BUTTON_INC:
-			// Increase timer duration by 60 seconds (1 minute)
+		case ID_BUTTON_INC: {
+			// Lambda to increase timer duration
+			auto increaseTimer = [](DWORD& duration, const DWORD increment) {
+				duration += increment;
+				};
 			if (currentTab == 1 && !timerRunning)
 			{
-				timerDuration += 60;
+				increaseTimer(timerDuration, 60); // Increase timer duration by 60 seconds (1 minute)
+				std::wstring title = L"Timer Duration: " + ToString(timerDuration) + L" seconds";
+				SetWindowText(hWnd, title.c_str());
+				timerDurationHistory.push_back(timerDuration);
 				InvalidateRect(hWnd, nullptr, TRUE); // Update window to reflect new timer duration
 			}
 			break;
-		case ID_BUTTON_DEC:
-			// Decrease timer duration by 60 seconds (1 minute)
+		}
+		case ID_BUTTON_DEC: {
+			// Lambda to decrease timer duration
+			auto decreaseTimer = [](DWORD& duration, const DWORD decrement) {
+				if (duration > decrement) duration -= decrement;
+				};
 			if (currentTab == 1 && !timerRunning && timerDuration > 60)
 			{
-				timerDuration -= 60;
+				decreaseTimer(timerDuration, 60); // Decrease timer duration by 60 seconds (1 minute)
+				std::wstring title = L"Timer Duration: " + ToString(timerDuration) + L" seconds";
+				SetWindowText(hWnd, title.c_str());
+				timerDurationHistory.push_back(timerDuration);
 				InvalidateRect(hWnd, nullptr, TRUE); // Update window to reflect new timer duration
 			}
 			break;
+		}
 		case ID_BUTTON_START_STOP:
 			// Start or stop the timer
 			if (currentTab == 1)
@@ -152,8 +210,7 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		}
 		break;
 	}
-	case WM_TIMER:
-	{
+	case WM_TIMER:	{
 		switch (wParam) {
 		case TIMER_ID:
 			if (currentTab == 0) {
@@ -204,7 +261,7 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		}
 		else if (currentTab == 1) {
 			// Draw timer if the second tab is selected
-			DWORD currentTime = GetTickCount() / 1000; // GetTickCount returns milliseconds
+			DWORD currentTime = GetTickCount64() / 1000; // GetTickCount returns milliseconds
 			DWORD elapsedTime = timerRunning ? (currentTime - timerStartTime) : 0;
 			DWORD remainingTime = timerRunning ? (timerDuration - elapsedTime) : timerDuration;
 
@@ -227,20 +284,28 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		EndPaint(hWnd, &ps);
 		break;
 	}
-	case WM_NOTIFY:
+	case WM_NOTIFY: {
+		LPNMHDR lpnmhdr = (LPNMHDR)lParam;
 		if (((LPNMHDR)lParam)->hwndFrom == hTabCtrl && ((LPNMHDR)lParam)->code == TCN_SELCHANGE) {
 			// Change the current tab
 			currentTab = TabCtrl_GetCurSel(hTabCtrl);
+			// Show or hide buttons based on the selected tab
+			int cmdShow = (currentTab == 1) ? SW_SHOW : SW_HIDE;
+			ShowWindow(hWndButtonInc, cmdShow);
+			ShowWindow(hWndButtonDec, cmdShow);
+			ShowWindow(hWndButtonStartStop, cmdShow);
 			// Invalidate the entire window
 			InvalidateRect(hWnd, nullptr, TRUE);
 		}
 		break;
-	case WM_DESTROY:
+	}
+	case WM_DESTROY: {
 		PostQuitMessage(0);
 		if (hFontClock) {
 			DeleteObject(hFontClock); // Clean up the font object
 		}
 		break;
+	}
 	default:
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
