@@ -1,0 +1,37 @@
+// cpp-atl.idl : IDL source for cpp-atl
+//
+
+// This file will be processed by the MIDL tool to
+// produce the type library (cppatl.tlb) and marshalling code.
+
+import "oaidl.idl";
+import "ocidl.idl";
+
+[
+	object,
+	uuid(3a276aa2-cf0e-4c58-afa3-40654f0291dd),
+	dual,
+	nonextensible,
+	pointer_default(unique)
+]
+interface IBasicWorker : IDispatch
+{
+	[id(1), helpstring("Computes the sum of two numbers.")] HRESULT ComputeSum([in] LONG firstNumber, [in] LONG secondNumber, [out, retval] LONG* sum);
+};
+[
+	uuid(8690ceee-aa9e-44fa-b20f-4fe3b8190326),
+	version(1.0),
+]
+library cppatlLib
+{
+	importlib("stdole2.tlb");
+	[
+		uuid(685e08a8-f042-425d-99b8-44bfd625c73f)
+	]
+	coclass BasicWorker
+	{
+		[default] interface IBasicWorker;
+	};
+};
+
+import "shobjidl.idl";
